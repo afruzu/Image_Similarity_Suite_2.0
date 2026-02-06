@@ -1,5 +1,5 @@
 import os
-from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMenu, QWidget, QMessageBox, QDialog, QFormLayout, QDoubleSpinBox, QSpinBox, QDialogButtonBox
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMenu, QWidget, QMessageBox, QDialog, QFormLayout, QDoubleSpinBox, QSpinBox, QDialogButtonBox, QComboBox
 from PySide6.QtGui import QPixmap, QCursor, QAction, QImage, QPainter, QColor, QPen, QFont
 from PySide6.QtCore import Qt, QRect, QPoint, QPointF, QSize
 
@@ -507,6 +507,19 @@ class VideoComparisonCard(QFrame):
 
     def show_keyframes_popup(self):
         try:
+            # Assicuriamo che la card corrente abbia il focus e sia attiva nella MainWindow
+            try:
+                self.setFocus()
+                main_win = self.window()
+                if main_win and hasattr(main_win, 'set_active_card'):
+                    main_win.set_active_card(self)
+                if main_win and hasattr(main_win, 'scroll'):
+                    try:
+                        main_win.scroll.ensureWidgetVisible(self)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             from video_analyzer import get_duration_and_fps
             kf_a = self.va.extract_percent_keyframes(self.pair.path_a)
             kf_b = self.va.extract_percent_keyframes(self.pair.path_b)
@@ -517,21 +530,44 @@ class VideoComparisonCard(QFrame):
             right = QVBoxLayout()
             duration_a = get_duration_and_fps(self.pair.path_a)[0]
             duration_b = get_duration_and_fps(self.pair.path_b)[0]
-            for p, h in sorted(kf_a.items()):
+            # Costruiamo liste ordinate di percentuali per A e B
+            percents_a = [p for p, _ in sorted(kf_a.items())]
+            percents_b = [p for p, _ in sorted(kf_b.items())]
+
+            # Aggiungiamo e rendiamo cliccabili le miniature (aprono lo zoom sulla coppia relativa)
+            for i, (p, h) in enumerate(sorted(kf_a.items())):
                 lbl = QLabel(f"{p}%")
                 img = QLabel()
                 t = (p / 100.0) * duration_a
                 pix = self.get_video_thumbnail(self.pair.path_a, t, 200, 120)
                 if pix: img.setPixmap(pix)
+                # bind click to open zoom at this index
+                def make_handler(idx):
+                    return lambda event: self._open_keyframes_zoom(percents_a, percents_b, duration_a, duration_b, start_index=idx)
+                img.mousePressEvent = make_handler(i)
                 left.addWidget(lbl); left.addWidget(img)
-            for p, h in sorted(kf_b.items()):
+
+            for i, (p, h) in enumerate(sorted(kf_b.items())):
                 lbl = QLabel(f"{p}%")
                 img = QLabel()
                 t = (p / 100.0) * duration_b
                 pix = self.get_video_thumbnail(self.pair.path_b, t, 200, 120)
                 if pix: img.setPixmap(pix)
+                def make_handler_b(idx):
+                    return lambda event: self._open_keyframes_zoom(percents_a, percents_b, duration_a, duration_b, start_index=idx)
+                img.mousePressEvent = make_handler_b(i)
                 right.addWidget(lbl); right.addWidget(img)
             layout.addLayout(left); layout.addLayout(right)
+
+            # Pulsante per aprire la vista ingrandita (zoom navigabile)
+            btn_row = QHBoxLayout()
+            btn_zoom = QPushButton("Apri Zoom Coppia")
+            btn_zoom.setMinimumHeight(36)
+            btn_zoom.setStyleSheet("background-color: #e67e22; color: white; font-weight: bold;")
+            btn_zoom.clicked.connect(lambda: self._open_keyframes_zoom(percents_a, percents_b, duration_a, duration_b))
+            btn_row.addStretch(); btn_row.addWidget(btn_zoom)
+            layout.addLayout(btn_row)
+
             w.setLayout(layout)
             # Manteniamo il riferimento per evitare che la finestra venga GC
             self._last_kf_window = w
@@ -544,6 +580,10 @@ class VideoComparisonCard(QFrame):
         self.update_card_style()
         main_win = self.window()
         if hasattr(main_win, 'refresh_global_stats'): main_win.refresh_global_stats()
+
+    def _open_keyframes_zoom(self, percents_a, percents_b, dur_a, dur_b, start_index=0):
+        dlg = KeyframesZoomDialog(self, self.pair.path_a, self.pair.path_b, percents_a, percents_b, dur_a, dur_b, self.get_video_thumbnail, start_index)
+        dlg.exec()
 
     def set_focus(self, active):
         self.is_active = active
@@ -629,6 +669,15 @@ class VideoSettingsDialog(QDialog):
         self.match_ratio_spin.setValue(self.settings.get('match_ratio_thresh', self.DEFAULTS['match_ratio_thresh']) * 100)
         form.addRow("Match ratio richiesto:", self.match_ratio_spin)
 
+        # Sort mode selection (user preference)
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems(["Ordine: Arrivo", "Score: Crescente", "Score: Decrescente"])
+        # Imposta valore iniziale se presente nelle settings
+        sort_init = self.settings.get('sort_mode', "Ordine: Arrivo")
+        if sort_init in ["Ordine: Arrivo", "Score: Crescente", "Score: Decrescente"]:
+            self.sort_combo.setCurrentText(sort_init)
+        form.addRow("Ordine risultati:", self.sort_combo)
+
         # Buttons with Restore Defaults
         btn_restore = QPushButton("Ripristina Default")
         btn_restore.setStyleSheet("background-color: #95a5a6; color: white; font-weight: bold;")
@@ -664,4 +713,103 @@ class VideoSettingsDialog(QDialog):
             'scene_threshold': int(self.scene_spin.value()),
             'match_hamming_thresh': int(self.hamming_spin.value()),
             'match_ratio_thresh': max(0.0, min(1.0, self.match_ratio_spin.value() / 100.0))
+            , 'sort_mode': self.sort_combo.currentText()
         }
+
+
+class KeyframesZoomDialog(QDialog):
+    """Dialog che mostra una coppia di keyframes ingrandita e permette
+    di scorrere le coppie con gli hotkey Up/Down o con i bottoni Prev/Next.
+    """
+    def __init__(self, parent, path_a, path_b, percents_a, percents_b, dur_a, dur_b, thumbnail_fetcher, start_index=0):
+        super().__init__(parent)
+        self.setWindowTitle("Zoom Keyframes")
+        self.path_a = path_a
+        self.path_b = path_b
+        self.percents_a = sorted(percents_a)
+        self.percents_b = sorted(percents_b)
+        self.dur_a = dur_a
+        self.dur_b = dur_b
+        self.fetch = thumbnail_fetcher
+        self.index = max(0, start_index)
+
+        self.init_ui()
+        self.refresh()
+
+    def init_ui(self):
+        from PySide6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+        from PySide6.QtCore import Qt
+
+        layout = QVBoxLayout(self)
+        self.info_lbl = QLabel("")
+        self.info_lbl.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.info_lbl)
+
+        imgs = QHBoxLayout()
+        self.lbl_a = QLabel()
+        self.lbl_b = QLabel()
+        for l in (self.lbl_a, self.lbl_b):
+            l.setMinimumSize(640, 400)
+            l.setStyleSheet("background-color: #111; border: 1px solid #333;")
+            l.setAlignment(Qt.AlignCenter)
+        imgs.addWidget(self.lbl_a)
+        imgs.addWidget(self.lbl_b)
+        layout.addLayout(imgs)
+
+        btns = QHBoxLayout()
+        self.btn_prev = QPushButton("◀ Prev")
+        self.btn_next = QPushButton("Next ▶")
+        self.btn_prev.clicked.connect(self.prev)
+        self.btn_next.clicked.connect(self.next)
+        btns.addStretch(); btns.addWidget(self.btn_prev); btns.addWidget(self.btn_next); btns.addStretch()
+        layout.addLayout(btns)
+
+    def keyPressEvent(self, event):
+        from PySide6.QtCore import Qt
+        if event.key() in (Qt.Key_Up, Qt.Key_Left):
+            self.prev()
+        elif event.key() in (Qt.Key_Down, Qt.Key_Right):
+            self.next()
+        else:
+            super().keyPressEvent(event)
+
+    def prev(self):
+        if self.index > 0:
+            self.index -= 1
+            self.refresh()
+
+    def next(self):
+        max_len = max(len(self.percents_a), len(self.percents_b))
+        if self.index < max_len - 1:
+            self.index += 1
+            self.refresh()
+
+    def refresh(self):
+        # Scegli percentuali correnti (se assenti prendi l'ultimo disponibile)
+        ai = min(self.index, max(0, len(self.percents_a) - 1)) if self.percents_a else 0
+        bi = min(self.index, max(0, len(self.percents_b) - 1)) if self.percents_b else 0
+        pa = self.percents_a[ai] if self.percents_a else 0
+        pb = self.percents_b[bi] if self.percents_b else 0
+
+        # Calcola tempi
+        ta = (pa / 100.0) * self.dur_a if self.dur_a else 0.0
+        tb = (pb / 100.0) * self.dur_b if self.dur_b else 0.0
+
+        pix_a = None
+        pix_b = None
+        try:
+            pix_a = self.fetch(self.path_a, ta, 640, 400)
+        except Exception:
+            pix_a = None
+        try:
+            pix_b = self.fetch(self.path_b, tb, 640, 400)
+        except Exception:
+            pix_b = None
+
+        if pix_a: self.lbl_a.setPixmap(pix_a)
+        else: self.lbl_a.setText("Frame non disponibile")
+        if pix_b: self.lbl_b.setPixmap(pix_b)
+        else: self.lbl_b.setText("Frame non disponibile")
+
+        total = max(len(self.percents_a), len(self.percents_b), 1)
+        self.info_lbl.setText(f"Coppia {self.index+1}/{total} — A: {pa}%  |  B: {pb}%")

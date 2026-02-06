@@ -73,6 +73,7 @@ Mentre le fasi progrediscono, le coppie duplicate/simili appaiono come **carte**
 - Tipo di file (FOTO/VIDEO)
 - Dimensioni, risoluzione, durata video
 - Pulsanti di decisione
+ - Pulsante **KEYFRAMES** (video): apre una finestra con i keyframe estratti; cliccando su una miniatura o sul pulsante "Apri Zoom Coppia" si apre una vista ingrandita e navigabile dei keyframe per esaminare i dettagli (la card viene automaticamente messa a fuoco quando si apre la finestra).
 
 #### **Step 4: Prendi Decisioni**
 Per ogni coppia duplicata, scegli una delle 4 azioni:
@@ -106,6 +107,13 @@ Per ogni coppia duplicata, scegli una delle 4 azioni:
 | `Space` | Reset posizione prima immagine |
 | `ESC` | Reset posizione entrambe |
 
+### Zoom Keyframes (Video)
+| Tasto | Effetto |
+|------:|--------|
+| `Freccia Su / Freccia Sinistra` | In Keyframes Zoom: vai al frame/coppia precedente |
+| `Freccia Giù / Freccia Destra` | In Keyframes Zoom: vai al frame/coppia successiva |
+| Click su miniatura | Apre il Keyframes Zoom sulla coppia selezionata |
+
 ### Decisioni Rapide
 | Tasto | Effetto |
 |-------|--------|
@@ -121,7 +129,7 @@ Clic destro su una carta apre un menu con tutte le opzioni sopra elencate.
 
 ## ⚙️ Impostazioni Configurabili
 
-Clicca **IMPOSTAZIONI VIDEO** (pulsante arancione in alto) per modificare i parametri di analisi.
+Clicca **IMPOSTAZIONI** (pulsante arancione in alto) per modificare i parametri di analisi.
 
 ### Fase 1: MD5 (Duplicati Certi)
 *Automatica, nessuna configurazione.*
@@ -150,8 +158,8 @@ Clicca **IMPOSTAZIONI VIDEO** (pulsante arancione in alto) per modificare i para
 
 ### Come Modificare le Impostazioni
 
-1. **Via dialogo**: Clicca **IMPOSTAZIONI VIDEO** → modifica i valori → clicca **OK**
-2. **Ripristino rapido**: Clicca il pulsante **RESTORE** (grigio, nella status bar video) per tornare ai default
+1. **Via dialogo**: Clicca **IMPOSTAZIONI** → modifica i valori → clicca **OK**
+2. **Ripristino rapido**: Usa il pulsante **Ripristina Default** all'interno della finestra **Impostazioni** per tornare ai default
 3. **Nel dialogo**: Clicca **Ripristina Default** per tornare ai valori di fabbrica
 
 Le impostazioni vengono salvate automaticamente in `video_settings.json`.

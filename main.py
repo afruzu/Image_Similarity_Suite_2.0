@@ -27,6 +27,7 @@ class AnalysisWorker(QThread):
     progress_phase3 = Signal(int)        # Progress Phase 3: 0-100%
     pair_found = Signal(object)
     auto_record = Signal(dict)
+    phase2_done = Signal()
     finished = Signal()
 
     def __init__(self, folder_path, video_settings=None):
@@ -175,6 +176,11 @@ class AnalysisWorker(QThread):
         
         self._log_event("PHASE2_END", f"Fine Phase 2: totali immagini elaborate={len(hashes)}")
         self.status_update.emit(f"Phase 2 conclusa: {len(hashes)} immagini analizzate")
+        # Notifica il MainThread che la Phase 2 è finita
+        try:
+            self.phase2_done.emit()
+        except Exception:
+            pass
 
         # --- FASE 3: Analisi video (leggera, pairwise) ---
         if remaining_videos:
@@ -397,8 +403,8 @@ class MainWindow(QMainWindow):
         self.btn_add_video.setStyleSheet("background-color: #8e44ad; color: white; font-weight: bold; padding: 0 12px;")
         self.btn_add_video.clicked.connect(self.add_video_pair)
 
-        # Pulsante impostazioni video
-        self.btn_video_settings = QPushButton("IMPOSTAZIONI VIDEO")
+        # Pulsante impostazioni (generale)
+        self.btn_video_settings = QPushButton("IMPOSTAZIONI")
         self.btn_video_settings.setMinimumHeight(40)
         self.btn_video_settings.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold; padding: 0 12px;")
         self.btn_video_settings.clicked.connect(self.open_video_settings)
@@ -476,11 +482,7 @@ class MainWindow(QMainWindow):
         self.btn_add_video.clicked.connect(self.add_video_pair)
         buttons_row.addWidget(self.btn_add_video, 1)
         
-        self.btn_restore_defaults = QPushButton("RESTORE")
-        self.btn_restore_defaults.setMinimumHeight(30)
-        self.btn_restore_defaults.setStyleSheet("background-color: #95a5a6; color: white; font-weight: bold; padding: 0 8px; font-size: 11px;")
-        self.btn_restore_defaults.clicked.connect(self.restore_video_defaults)
-        buttons_row.addWidget(self.btn_restore_defaults, 0)
+        # Il pulsante di ripristino è ora presente nella finestra 'Impostazioni'
         
         video_area.addLayout(buttons_row)
         
@@ -513,9 +515,10 @@ class MainWindow(QMainWindow):
                 self.load_session(json_path)
                 return
 
+        # Mostra solo la progress bar relativa alla Phase 1 all'avvio
         self.pbar_phase1.show()
-        self.pbar_phase2.show()
-        self.pbar_phase3.show()
+        self.pbar_phase2.hide()
+        self.pbar_phase3.hide()
         self.worker = AnalysisWorker(folder, video_settings=self.video_settings)
         self.worker.status_update.connect(self.lbl_status.setText)
         self.worker.progress_phase1.connect(self.pbar_phase1.setValue)
@@ -523,9 +526,31 @@ class MainWindow(QMainWindow):
         self.worker.progress_phase3.connect(self.pbar_phase3.setValue)
         self.worker.auto_record.connect(lambda d: self.auto_duplicates.append(d))
         self.worker.phase1_done.connect(self.handle_phase1_report)
+        # Collego handler per mostrare/nascondere le progress bar tra le fasi
+        self.worker.phase1_done.connect(self._on_phase1_done)
+        self.worker.phase2_done.connect(self._on_phase2_done)
         self.worker.pair_found.connect(self.enqueue_pair)
         self.worker.finished.connect(self.on_analysis_finished)
         self.worker.start()
+
+    def _on_phase1_done(self, stats):
+        """Nasconde la P1 e mostra la P2 quando la Phase 1 è completata."""
+        try:
+            self.pbar_phase1.hide()
+            self.pbar_phase2.show()
+            # assicurati che la barra di Phase2 sia azzerata all'inizio
+            self.pbar_phase2.setValue(0)
+        except Exception:
+            pass
+
+    def _on_phase2_done(self):
+        """Nasconde la P2 e mostra la P3 quando la Phase 2 è completata."""
+        try:
+            self.pbar_phase2.hide()
+            self.pbar_phase3.show()
+            self.pbar_phase3.setValue(0)
+        except Exception:
+            pass
 
     def add_video_pair(self):
         paths, _ = QFileDialog.getOpenFileNames(self, "Seleziona almeno due video", filter="Video Files (*.mp4 *.mov *.mkv *.avi)")
@@ -553,6 +578,14 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Errore salvataggio", f"Impossibile salvare le impostazioni: {e}")            # Aggiorna il banner subito dopo il salvataggio
             try:
                 self.refresh_video_settings_display()
+            except Exception:
+                pass
+            # Applica la preferenza di ordinamento passata dal dialog
+            try:
+                sort_mode = self.video_settings.get('sort_mode')
+                if sort_mode and sort_mode in ["Ordine: Arrivo", "Score: Crescente", "Score: Decrescente"]:
+                    # Imposta la drop-down principale sul nuovo criterio
+                    self.combo_sort.setCurrentText(sort_mode)
             except Exception:
                 pass
             
@@ -836,6 +869,8 @@ class MainWindow(QMainWindow):
 
     def on_analysis_finished(self):
         self.flush_pending_batch()
+        # Nascondi tutte le progress bar a fine analisi (P1 inclusa)
+        self.pbar_phase1.hide()
         self.pbar_phase2.hide()
         self.pbar_phase3.hide()
         self.lbl_status.setText("Analisi Finita. Pronto per la revisione.")
