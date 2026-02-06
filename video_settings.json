@@ -1,0 +1,9 @@
+{
+  "duration_tol": 0.02,
+  "res_tol": 0.05,
+  "score_threshold": 0.6,
+  "max_workers": 6,
+  "scene_threshold": 30,
+  "match_hamming_thresh": 10,
+  "match_ratio_thresh": 0.6
+}
